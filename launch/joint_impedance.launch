@@ -1,0 +1,4 @@
+<launch>
+  <node name="test_joint_impedance_node" pkg="test_lwr_controllers" type="test_joint_impedance_node" output="screen" />
+</launch>
+
