@@ -5,7 +5,9 @@
 #include <controller_manager/controller_loader.h>
 #include <controller_interface/controller.h>
 
-#include <lwr_controllers/PoseRPY.h>
+// #include <lwr_controllers/PoseRPY.h>
+#include <geometry_msgs/Pose.h>
+#include <geometry_msgs/PoseStamped.h>
 
 #define NUM_LWR_JOINTS      7
 #define NUM_CART_DIM        6
@@ -18,7 +20,8 @@ protected:
 	
     sensor_msgs::JointState js_;
     bool initialized_;
-    lwr_controllers::PoseRPY cart_pose_;
+    // lwr_controllers::PoseRPY cart_pose_;
+    geometry_msgs::PoseStamped cart_pose_;
     ros::Subscriber sub_js_;
     controller_manager_msgs::SwitchController sc_;
     controller_manager_msgs::ListControllers lc_;
@@ -207,7 +210,8 @@ public:
         ROS_INFO_STREAM ("Subscribing to /lwr/" << controller_name_ << "/measured_cartesian_position...");
         sub_js_ = nh_.subscribe ("/lwr/" + controller_name_ + "/measured_cartesian_position", 10, &cartController::callbackCartPosition, this);
 
-        pub_pose_ = nh_.advertise<lwr_controllers::PoseRPY>("/lwr/" + controller_name_ + "/position", 500);
+        // TODO find name policy for ALL controllers
+        pub_pose_ = nh_.advertise<geometry_msgs::Pose>("/lwr/" + controller_name_ + "/command", 500);
         pub_force_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/force", 500);
         pub_gains_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/gains", 500);
 
@@ -226,11 +230,17 @@ public:
         }
     }
 
-    void callbackCartPosition(const lwr_controllers::PoseRPYConstPtr &msg)
+    void callbackCartPosition(const geometry_msgs::PoseStamped &msg)
     {
-        cart_pose_ = *msg;
+        cart_pose_ = msg;
         initialized_ = true;
     }
+
+//    void callbackCartPosition(const lwr_controllers::PoseRPYConstPtr &msg)
+//    {
+//        cart_pose_ = *msg;
+//        initialized_ = true;
+//    }
 
     void callbackJointState(const sensor_msgs::JointStateConstPtr &msg)
     {
@@ -238,10 +248,15 @@ public:
         initialized_ = true;
     }
 
-    lwr_controllers::PoseRPY getCartPosition()
+    geometry_msgs::PoseStamped getCartPosition()
     {
         return cart_pose_;
     }
+
+//    lwr_controllers::PoseRPY getCartPosition()
+//    {
+//        return cart_pose_;
+//    }
 
     lwr_controllers::PoseRPY setCartPosition(double x, double y, double z, double roll, double pitch, double yaw)
     {
