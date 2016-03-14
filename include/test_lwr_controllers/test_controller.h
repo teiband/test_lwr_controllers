@@ -5,6 +5,8 @@
 #include <controller_manager/controller_loader.h>
 #include <controller_interface/controller.h>
 
+#include <tf/transform_listener.h>
+
 // #include <lwr_controllers/PoseRPY.h>
 #include <geometry_msgs/Pose.h>
 #include <geometry_msgs/PoseStamped.h>
@@ -23,12 +25,14 @@ protected:
     // lwr_controllers::PoseRPY cart_pose_;
     geometry_msgs::PoseStamped cart_pose_;
     ros::Subscriber sub_js_;
+    ros::Subscriber sub_pose_;
     controller_manager_msgs::SwitchController sc_;
     controller_manager_msgs::ListControllers lc_;
     ros::ServiceClient srv_contr_switcher_;
     ros::ServiceClient srv_contr_list_;
     std::string controller_name_;
     ros::NodeHandle nh_;
+    tf::StampedTransform world_transform_;
 
 public:
 
@@ -196,9 +200,11 @@ public:
 
 class cartController : public testController {
 private:
-
+    tf::TransformListener tf_listener_;
 
 public:
+
+    ros::Publisher pub_pose_world_;
 
     cartController(ros::NodeHandle &nh, std::string controller_name) : testController(nh, controller_name)
     {
@@ -208,11 +214,28 @@ public:
         sub_js_ = nh_.subscribe ("/lwr/joint_states", 10, &cartController::callbackJointState, this);
 
         ROS_INFO_STREAM ("Subscribing to /lwr/" << controller_name_ << "/measured_cartesian_position...");
-        sub_js_ = nh_.subscribe ("/lwr/" + controller_name_ + "/measured_cartesian_position", 10, &cartController::callbackCartPosition, this);
+        sub_pose_ = nh_.subscribe ("/lwr/" + controller_name_ + "/measured_cartesian_pose", 10, &cartController::callbackCartPosition, this);
 
-        // TODO find name policy for ALL controllers
-        pub_pose_ = nh_.advertise<geometry_msgs::Pose>("/lwr/" + controller_name_ + "/command", 500);
-        pub_force_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/force", 500);
+        ROS_INFO_STREAM ("Looking up Transform...");
+
+        bool init_transform = true;
+        while (nh_.ok() && init_transform) {
+            try {
+                ros::Time ros_time = ros::Time(0);
+                tf_listener_.lookupTransform("box", "lwr_7_link", ros_time, world_transform_);
+                init_transform = false;
+            }
+            catch (tf::TransformException ex){
+                ROS_ERROR("%s",ex.what());
+                ros::Duration(1.0).sleep();
+            }
+        }
+        ROS_INFO_STREAM ("done!");
+
+        // TODO find topic name convention for ALL controllers
+        pub_pose_ = nh_.advertise<geometry_msgs::Pose>("/lwr/" + controller_name_ + "/pose", 500);
+        pub_pose_world_ = nh_.advertise<geometry_msgs::Pose>("/lwr/" + controller_name_ + "/pose_world", 500);
+        pub_force_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/addFT", 500);
         pub_gains_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/gains", 500);
 
         ROS_INFO("Creating service handle: switch_controller");
@@ -230,9 +253,9 @@ public:
         }
     }
 
-    void callbackCartPosition(const geometry_msgs::PoseStamped &msg)
+    void callbackCartPosition(const geometry_msgs::PoseStampedConstPtr &msg)
     {
-        cart_pose_ = msg;
+        cart_pose_ = *msg;
         initialized_ = true;
     }
 
@@ -253,6 +276,30 @@ public:
         return cart_pose_;
     }
 
+    geometry_msgs::PoseStamped getWorldPosition()
+    {
+        geometry_msgs::PoseStamped tempPose;
+        while (nh_.ok()) {
+            try {
+                tf_listener_.lookupTransform("box", "lwr_7_link", ros::Time(0), world_transform_);
+
+                tempPose.pose.position.x = world_transform_.getOrigin().x();
+                tempPose.pose.position.y = world_transform_.getOrigin().y();
+                tempPose.pose.position.z = world_transform_.getOrigin().z();
+                tempPose.pose.orientation.x = world_transform_.getRotation().x();
+                tempPose.pose.orientation.y = world_transform_.getRotation().y();
+                tempPose.pose.orientation.z = world_transform_.getRotation().z();
+                tempPose.pose.orientation.w = world_transform_.getRotation().w();
+
+                return tempPose;
+            }
+            catch (tf::TransformException ex){
+                ROS_ERROR("%s",ex.what());
+                ros::Duration(0.1).sleep();
+            }
+        }
+    }
+
 //    lwr_controllers::PoseRPY getCartPosition()
 //    {
 //        return cart_pose_;
@@ -270,16 +317,20 @@ public:
         return pose;
     }
 
-    std_msgs::Float64MultiArray setCartGainsVector(float stiffness, float damping)
+    std_msgs::Float64MultiArray setCartGainsVector(float pos_stiffness, float orientation_stiffness, float damping)
     {
         std_msgs::Float64MultiArray cart_vector;
+        cart_vector.data.resize(2*NUM_CART_DIM);
 
-        for (int i=0; i< NUM_CART_DIM; i++ ) {
-            cart_vector.data.push_back(stiffness);
+        for (int i=0; i< 3; i++ ) {
+            cart_vector.data[i] = pos_stiffness;
+            cart_vector.data[i+3] = pos_stiffness;
         }
-        for (int i=NUM_CART_DIM; i< 2*NUM_CART_DIM; i++ ) {
-            cart_vector.data.push_back(damping);
+        for (int i=0; i< 6; i++ ) {
+            cart_vector.data[i+6] = damping;
+
         }
+
         return cart_vector;
     }
 

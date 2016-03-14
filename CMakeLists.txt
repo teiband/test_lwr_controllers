@@ -8,6 +8,7 @@ find_package(catkin REQUIRED COMPONENTS
   roscpp
   single_lwr_launch
   lwr_controllers
+  tf
 )
 
 find_package( OpenCV REQUIRED )
@@ -104,7 +105,7 @@ find_package( OpenCV REQUIRED )
 catkin_package(
   INCLUDE_DIRS include
 #  LIBRARIES test_lwr_controllers
-  CATKIN_DEPENDS roscpp single_lwr_launch lwr_controllers
+  CATKIN_DEPENDS roscpp single_lwr_launch lwr_controllers tf
 #  DEPENDS system_lib
 )
 

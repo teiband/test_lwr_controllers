@@ -44,10 +44,12 @@
   <build_depend>single_lwr_launch</build_depend>
   <build_depend>lwr_controllers</build_depend>
   <build_depend>eigen</build_depend>
+  <build_depend>tf</build_depend>
   <run_depend>roscpp</run_depend>
   <run_depend>single_lwr_launch</run_depend>
   <run_depend>eigen</run_depend>
   <run_depend>lwr_controllers</run_depend>
+  <run_depend>tf</run_depend>
 
 
   <!-- The export tag contains other, unspecified, tags -->

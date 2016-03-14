@@ -25,19 +25,23 @@ using namespace std;
 
 /// Global Variables
 
-int pos_slider0, stiffness_slider, damping_slider;
-float stiffness, damping;
+int pos_slider0, pos_stiffness_slider, orientation_stiffness_slider,damping_slider;
+float pos_stiffness, orientation_stiffness, damping;
 
-void callbackStiffnessSlider( int, void* )
+void callbackPosStiffnessSlider( int, void* )
 {
-    stiffness = (float)stiffness_slider;
+    pos_stiffness = (float)pos_stiffness_slider;
+}
+
+void callbackOrientationStiffnessSlider( int, void* )
+{
+    orientation_stiffness = (float)orientation_stiffness_slider;
 }
 
 void callbackDampingSlider( int, void* )
 {
     damping = damping_slider / 100.0;
 }
-
 
 float swing(float min, float max, double& act, float& inc)
 {
@@ -69,7 +73,8 @@ int main(int argc, char** argv)
     // ----- GUI -----
     // Initialize values
     pos_slider0 = 0;
-    stiffness_slider = 300;
+    pos_stiffness_slider = 800;
+    orientation_stiffness_slider = 50;
     damping_slider = 70;
 
     // Create Windows
@@ -77,7 +82,8 @@ int main(int argc, char** argv)
 
     // Create Trackbars
     //createTrackbar( "position joint 0", "SimpleControl", &pos_slider0, 360, callbackPosSlider );
-    createTrackbar( "stiffness", "SimpleControl", &stiffness_slider, 1500, callbackStiffnessSlider );
+    createTrackbar( "pos. stiffness", "SimpleControl", &pos_stiffness_slider, 1500, callbackPosStiffnessSlider );
+    createTrackbar( "orientation stiffness", "SimpleControl", &orientation_stiffness_slider, 1500, callbackOrientationStiffnessSlider );
     createTrackbar( "damping", "SimpleControl", &damping_slider, 100, callbackDampingSlider );
 
     // put text
@@ -86,7 +92,8 @@ int main(int argc, char** argv)
     cv::imshow("SimpleControl", pic);
 
     // Show some stuff
-    callbackStiffnessSlider ( stiffness_slider, 0 );
+    callbackPosStiffnessSlider ( pos_stiffness_slider, 0 );
+    callbackOrientationStiffnessSlider ( orientation_stiffness_slider, 0 );
     callbackDampingSlider ( damping_slider, 0 );
 
     // shows the window until a key is pressed
@@ -94,10 +101,10 @@ int main(int argc, char** argv)
     // ----- end GUI -----
 
     // Init the ROS node
-    ros::init(argc, argv, "test_lwr_controllers_node");
+    ros::init(argc, argv, "test_lwr_controllers");
 
     ros::NodeHandle nh;
-    cartController tester(nh, "cartesian_impedance_controller");
+    cartController tester(nh, "itr_cartesian_impedance_controller");
 
     // set global pointer (for signint handler)
     global_tester_ptr = &tester;
@@ -136,7 +143,9 @@ int main(int argc, char** argv)
             if (tester.isInitialized()) {
                 if (!initialized) {
                     cout << "Initializing main loop ..." << endl;
+                    //pose = tester.getWorldPosition().pose;
                     pose = tester.getCartPosition().pose;
+
                     // set limits:
                     upper = pose.position.z + 0.1;
                     lower = pose.position.z - 0.1;
@@ -148,7 +157,11 @@ int main(int argc, char** argv)
                 // ROS_INFO_STREAM("Publishing to" << pub_pose.getNumSubscribers() << " subscribers\n");
 
                 //pose = tester.getCartPosition().pose;
+                //tester.pub_pose_.publish(pose);
+                //pose = geometry_msgs::Pose();
+                //pose.orientation.w = 1; // unit quaternions
                 tester.pub_pose_.publish(pose);
+                //tester.pub_pose_world_.publish(pose_world);
 
                 SHOW(display_counter) "Cart. Position: " << pose.position.x << ", "
                                                          << pose.position.y << ", "
@@ -158,17 +171,15 @@ int main(int argc, char** argv)
                                                          << pose.orientation.z << ", "
                                                          << pose.orientation.w << endl;
 
-                //tester.pub_torque_.publish(torque_vector);
-                //tester.pub_gains_.publish(tester.setCartGainsVector(300.0, 0.7));
-                //tester.pub_gains_.publish(tester.setCartGainsVector(stiffness, damping));
-                std_msgs::Float64MultiArray gains = tester.setCartGainsVector(300, 0.7);
-                gains.data[0] = 300.0;
-                gains.data[1] = 300.0;
-                gains.data[2] = 300.0;
-                gains.data[3] = 50.0;
-                gains.data[4] = 50.0;
-                gains.data[5] = 50.0;
-                tester.pub_gains_.publish(gains);
+                tester.pub_gains_.publish(tester.setCartGainsVector(800, 50, damping));
+//                std_msgs::Float64MultiArray gains = tester.setCartGainsVector(300, 0.7);
+//                gains.data[0] = 300.0;
+//                gains.data[1] = 300.0;
+//                gains.data[2] = 300.0;
+//                gains.data[3] = 50.0;
+//                gains.data[4] = 50.0;
+//                gains.data[5] = 50.0;
+//                tester.pub_gains_.publish(gains);
             }
             break;
         case SWITCH_IMP2POS:
@@ -176,7 +187,7 @@ int main(int argc, char** argv)
             std::vector<std::string> start_controllers;
             start_controllers.push_back("cartesian_position");
             std::vector<std::string> stop_controllers;
-            stop_controllers.push_back("cartesian_impedance_controller");
+            stop_controllers.push_back("itr_cartesian_impedance_controller");
             tester.switchController(start_controllers, stop_controllers);
             ROS_INFO("Switching to POSITION mode done!");
             state = JOINT_POSITION;
@@ -198,7 +209,7 @@ int main(int argc, char** argv)
         case SWITCH_POS2IMP:
         {
             std::vector<std::string> start_controllers;
-            start_controllers.push_back("cartesian_impedance_controller");
+            start_controllers.push_back("itr_cartesian_impedance_controller");
             std::vector<std::string> stop_controllers;
             stop_controllers.push_back("cartesian_position");
             tester.switchController(start_controllers, stop_controllers);
