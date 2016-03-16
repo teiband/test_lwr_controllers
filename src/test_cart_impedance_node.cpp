@@ -17,6 +17,8 @@
 #include <test_lwr_controllers/test_controller.hpp>
 #include <test_lwr_controllers/motion_generator.hpp>
 
+#include <tf/tf.h>
+
 #define DISPLAY_CYCLES  1000
 #define SHOW(i) if(i%DISPLAY_CYCLES==0) std::cout <<
 
@@ -51,11 +53,7 @@ TestController *global_tester_ptr = NULL;
 // this handler is called when you press Ctrl-C to switch back to position control mode
 void mySigintHandler(int sig)
 {
-    std::vector<std::string> start_controllers;
-    start_controllers.push_back("cartesian_position");
-    std::vector<std::string> stop_controllers;
-    stop_controllers.push_back(global_tester_ptr->getControllerName());
-    global_tester_ptr->switchController(start_controllers, stop_controllers);
+    global_tester_ptr->switchController("cartesian_position", global_tester_ptr->getControllerName());
     // All the default sigint handler does is call shutdown()
     ros::shutdown();
 }
@@ -102,13 +100,16 @@ int main(int argc, char** argv)
     std::string impedance_controller("itr_cartesian_impedance_controller");
 
     CartController tester(nh, impedance_controller, position_controller);
+    ros::Publisher pub_pos_mode = nh.advertise<lwr_controllers::PoseRPY>("/lwr/cartesian_position/command", 10);
+    lwr_controllers::PoseRPY pos_mode_cmd, init_pos_mode_cmd;
+
 
     // set global pointer (for signint handler)
     global_tester_ptr = &tester;
     signal(SIGINT, mySigintHandler);
 
     // lwr_controllers::PoseRPY pose;
-    geometry_msgs::Pose pose, pose_robot, pose_world;
+    geometry_msgs::Pose pose, pose_robot, pose_world, init_pose;
 
     ros::Rate loop_rate(LOOP_RATE);
 
@@ -144,20 +145,18 @@ int main(int argc, char** argv)
                     cout << "Initializing main loop ..." << endl;
                     pose_world = tester.getWorldPosition().pose;
                     pose_robot = tester.getCartPosition().pose;
+
                     // define here, in which coordinate system you want to work
                     pose = pose_world;
-                    cout << "init pose: " << pose_world << endl;
-                    // set limits:
-                    upper = pose.position.z + 0.1;
-                    lower = pose.position.z - 0.1;
+
+                    init_pose = pose;
+                    cout << "init pose: " << endl << init_pose << endl;
+                    motion.reset();
                     initialized = true;
                 }
 
                 // move the robot in one axis ...
-                motion.swing(lower, upper, pose.position.z, inc);
-
-                // ROS_INFO_STREAM("Publishing to" << pub_pose.getNumSubscribers() << " subscribers\n");
-
+                pose.position.x = motion.sineWave(0.1, init_pose.position.x, 0.1, LOOP_RATE);
                 tester.pub_pose_world_.publish(pose);
 
                 SHOW(display_counter) "Cart. Position: " << endl << pose << endl;
@@ -167,16 +166,30 @@ int main(int argc, char** argv)
             break;
         case SWITCH_IMP2POS:
         {
-            std::vector<std::string> start_controllers;
-            start_controllers.push_back(position_controller);
-            std::vector<std::string> stop_controllers;
-            stop_controllers.push_back(impedance_controller);
-            tester.switchController(start_controllers, stop_controllers);
+            tester.switchController(position_controller, impedance_controller);
             ROS_INFO("Switching to POSITION mode done!");
             state = JOINT_POSITION;
 
             // reset timer here
             startTime = ros::Time::now();
+
+            motion.reset();
+
+            double Y, P, R;
+            tf::Matrix3x3 (tf::Quaternion (tester.getCartPosition().pose.orientation.x,
+                                tester.getCartPosition().pose.orientation.y,
+                                tester.getCartPosition().pose.orientation.z,
+                                tester.getCartPosition().pose.orientation.w)).getEulerYPR(Y, P, R);
+
+            pos_mode_cmd.orientation.roll = R;
+            pos_mode_cmd.orientation.pitch = P;
+            pos_mode_cmd.orientation.yaw = Y;
+            pos_mode_cmd.position.x = tester.getCartPosition().pose.position.x;
+            pos_mode_cmd.position.y = tester.getCartPosition().pose.position.y;
+            pos_mode_cmd.position.z = tester.getCartPosition().pose.position.z;
+
+            init_pos_mode_cmd = pos_mode_cmd;
+
             break;
         }
         case JOINT_POSITION:
@@ -184,18 +197,22 @@ int main(int argc, char** argv)
                 //exit(0);
                 state = SWITCH_POS2IMP;
                 startTime = ros::Time::now();
-                ROS_INFO("Switched to state SWITCH_IMP2POS");
+                ROS_INFO("Switched to state SWITCH_POS2IMP");
             }
+            //SHOW(display_counter) tester.getCartPosition().pose << endl;
+
+            SHOW(display_counter) pos_mode_cmd << endl;
+
+            // move the robot in one axis ...
+            pos_mode_cmd.position.x = motion.sineWave(0.1, init_pos_mode_cmd.position.x, 0.1, LOOP_RATE);
+            pos_mode_cmd.id = 0;
+            pub_pos_mode.publish(pos_mode_cmd);
 
             break;
 
         case SWITCH_POS2IMP:
         {
-            std::vector<std::string> start_controllers;
-            start_controllers.push_back(impedance_controller);
-            std::vector<std::string> stop_controllers;
-            stop_controllers.push_back(position_controller);
-            tester.switchController(start_controllers, stop_controllers);
+            tester.switchController(impedance_controller, position_controller);
             ROS_INFO("Switching to JOINT IMPEDANCE mode done!");
             state = CARTESIAN_IMPEDANCE;
 

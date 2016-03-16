@@ -171,10 +171,21 @@ public:
 
         //let the KRC some time to switch control mode:
         ROS_INFO("Waiting for KRC ...");
-        sleep(6);   // TODO find good time value for all controllers
+        sleep(5);   // TODO find good time value for all controllers
         ROS_INFO("Switch Done!");
 
         return ret_val;
+    }
+
+    bool switchController(std::string start_controller, std::string stop_controller, int strictness = 1)
+    {
+        std::vector<std::string> start_controllers;
+        start_controllers.push_back(start_controller);
+        std::vector<std::string> stop_controllers;
+        stop_controllers.push_back(stop_controller);
+
+        switchController(start_controllers, stop_controllers, strictness);
+
     }
 
     virtual ~TestController()
