@@ -7,7 +7,10 @@
 #include <lwr_controllers/PoseRPY.h>
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui/highgui.hpp>
-#include <test_lwr_controllers/test_controller.h>
+
+#include <test_lwr_controllers/test_controller.hpp>
+#include <test_lwr_controllers/motion_generator.hpp>
+
 #include <math.h>
 #include <signal.h>
 
@@ -16,45 +19,41 @@ using namespace cv;
 #define LOOP_RATE           1000  // cycles per second to publish new control input
 #define NUM_LWR_JOINTS      7
 
+#define SWITCHING_TIME      15 // time between position and impedance controller switch for testing
+
 /// Global Variables
 
 int pos_slider0, stiffness_slider, damping_slider;
-float stiffness, damping;
+double stiffness, damping;
 
 void callbackStiffnessSlider( int, void* )
 {
     stiffness = (float)stiffness_slider;
+    std::max(0.1, stiffness);
 }
 
 void callbackDampingSlider( int, void* )
 {
     damping = damping_slider / 100.0;
+    std::max(0.01, damping);
 }
 
-
-void swing(float min, float max, double& act, float& inc)
-{
-    if (act > max || act < min)
-        inc = -inc;
-
-    act += inc;
-}
-
-void sineWave(float amp, double init_pos, double& act, double& time)
-{
-    const float f = 0.05; //Hz
-    act = init_pos + amp * sin(2.0*M_PI* f * time);
-    time += 1/(float)LOOP_RATE;
-}
-
+bool quit_request = false;
 // global reference to testClass
-testController *global_tester_ptr = NULL;
+TestController *global_tester_ptr = NULL;
 
 // this handler is called when you press Ctrl-C to switch back to position control mode
 void mySigintHandler(int sig)
 {
+    ROS_INFO("SIGINT Handler: Switching back to position mode ...");
+    global_tester_ptr->pub_pose_.shutdown();
+    global_tester_ptr->pub_force_.shutdown();
+    global_tester_ptr->pub_gains_.shutdown();
+
+    quit_request = true; // this stops the main loop, otherwise topics are still published and controller keeps running
+
     std::vector<std::string> start_controllers;
-    start_controllers.push_back("joint_trajectory_controller");
+    start_controllers.push_back("cartesian_position");
     std::vector<std::string> stop_controllers;
     stop_controllers.push_back(global_tester_ptr->getControllerName());
     global_tester_ptr->switchController(start_controllers, stop_controllers);
@@ -95,7 +94,11 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "test_lwr_controllers_node");
 
     ros::NodeHandle nh;
-    jointController tester(nh, "itr_joint_impedance_controller");
+
+    std::string position_controller("joint_trajectory_controller");
+    std::string impedance_controller("itr_joint_impedance_controller");
+
+    JointController tester(nh, impedance_controller, position_controller);
 
     // set global pointer (for signint handler)
     global_tester_ptr = &tester;
@@ -112,8 +115,6 @@ int main(int argc, char** argv)
     float inc = +0.0002;
     float inc_stiff = +0.1;
 
-    double d_stiffness = stiffness;
-
     float upper, lower;
     bool initialized = false;
 
@@ -122,10 +123,11 @@ int main(int argc, char** argv)
     int state = JOINT_IMPEDANCE;
     ros ::Time startTime = ros::Time::now();
 
-    int display_counter;
-    double time = 0;
+    MotionGenerator motion;
 
-    while(ros::ok())
+    int display_counter;
+
+    while(ros::ok() && !quit_request)
 	{
         display_counter++;
 
@@ -133,23 +135,20 @@ int main(int argc, char** argv)
 
         case JOINT_IMPEDANCE:
 
-            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(10).toSec()) {
-                //state = SWITCH_IMP2POS;
-                //ROS_INFO("Switched to state SWITCH_IMP2POS");
+            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(SWITCHING_TIME).toSec()) {
+                state = SWITCH_IMP2POS;
+                ROS_INFO("Switched to state SWITCH_IMP2POS");
             }
 
             if (tester.isInitialized()) {
                 if (!initialized) {
-                    pos.data = tester.getJointState().position;
-                    init_pos.data = tester.getJointState().position;
-                    // set limits:
-                    upper = pos.data[0] + 0.3;
-                    lower = pos.data[0] - 0.3;
+                    pos.data = tester.getJointPosition();
+                    init_pos.data = tester.getJointPosition();
                     initialized = true;
+                    motion.reset();
                 }
 
-                //swing(lower, upper, pos.data[0], inc);
-                sineWave(0.3, init_pos.data[0], pos.data[0], time);
+                //motion.sineWave(0.3, init_pos.data[0], pos.data[0], LOOP_RATE);
 
                 if (display_counter%LOOP_RATE == 0) {
                     for (int i=0; i<7; i++) {
@@ -159,18 +158,11 @@ int main(int argc, char** argv)
                     std::cout << std::endl;
                 }
 
-                sineWave(550.0, 600.0, d_stiffness, time);
-
-                //swing(200.0, 1500.0, d_stiffness, inc_stiff);
-
-                //std_msgs::Float64MultiArray torque_vector;
-                //torque_vector.data.resize(NUM_LWR_JOINTS);
-                //torque_vector.data[0] = 0;
+                //motion.sineWave(550.0, 600.0, stiffness, LOOP_RATE);
 
                 tester.pub_pose_.publish(pos);
                 //tester.pub_force_.publish(torque_vector);
-                //tester.pub_gains_.publish(tester.setGainsVector(300.0, 0.7));
-                tester.pub_gains_.publish(tester.setJointGainsVector(d_stiffness, damping));
+                tester.pub_gains_.publish(tester.setJointGainsVector(stiffness, damping));
 
             }
             break;
@@ -179,7 +171,7 @@ int main(int argc, char** argv)
             std::vector<std::string> start_controllers;
             start_controllers.push_back("cartesian_position");
             std::vector<std::string> stop_controllers;
-            stop_controllers.push_back("itr_joint_impedance_controller");
+            stop_controllers.push_back(tester.getControllerName());
             tester.switchController(start_controllers, stop_controllers);
             ROS_INFO("Switching to POSITION mode done!");
             state = JOINT_POSITION;
@@ -189,11 +181,10 @@ int main(int argc, char** argv)
             break;
         }
         case JOINT_POSITION:
-            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(5).toSec()) {
-                exit(0);
-                //state = SWITCH_POS2IMP;
-                //startTime = ros::Time::now();
-                //ROS_INFO("Switched to state SWITCH_IMP2POS");
+            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(SWITCHING_TIME).toSec()) {
+                state = SWITCH_POS2IMP;
+                startTime = ros::Time::now();
+                ROS_INFO("Switched to state SWITCH_IMP2POS");
             }
 
             break;
@@ -201,7 +192,7 @@ int main(int argc, char** argv)
         case SWITCH_POS2IMP:
         {
             std::vector<std::string> start_controllers;
-            start_controllers.push_back("itr_joint_impedance_controller");
+            start_controllers.push_back(tester.getControllerName());
             std::vector<std::string> stop_controllers;
             stop_controllers.push_back("cartesian_position");
             tester.switchController(start_controllers, stop_controllers);

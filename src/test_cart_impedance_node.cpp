@@ -14,7 +14,9 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <signal.h>
 
-#include <test_lwr_controllers/test_controller.h>
+#include <test_lwr_controllers/test_controller.hpp>
+#include <test_lwr_controllers/motion_generator.hpp>
+
 #define DISPLAY_CYCLES  1000
 #define SHOW(i) if(i%DISPLAY_CYCLES==0) std::cout <<
 
@@ -43,23 +45,14 @@ void callbackDampingSlider( int, void* )
     damping = damping_slider / 100.0;
 }
 
-float swing(float min, float max, double& act, float& inc)
-{
-    if (act > max || act < min)
-        inc = -inc;
-
-    act += inc;
-}
-
-
 // global reference to testClass
-testController *global_tester_ptr = NULL;
+TestController *global_tester_ptr = NULL;
 
 // this handler is called when you press Ctrl-C to switch back to position control mode
 void mySigintHandler(int sig)
 {
     std::vector<std::string> start_controllers;
-    start_controllers.push_back("joint_trajectory_controller");
+    start_controllers.push_back("cartesian_position");
     std::vector<std::string> stop_controllers;
     stop_controllers.push_back(global_tester_ptr->getControllerName());
     global_tester_ptr->switchController(start_controllers, stop_controllers);
@@ -104,14 +97,18 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "test_lwr_controllers");
 
     ros::NodeHandle nh;
-    cartController tester(nh, "itr_cartesian_impedance_controller");
+
+    std::string position_controller("cartesian_position");
+    std::string impedance_controller("itr_cartesian_impedance_controller");
+
+    CartController tester(nh, impedance_controller, position_controller);
 
     // set global pointer (for signint handler)
     global_tester_ptr = &tester;
     signal(SIGINT, mySigintHandler);
 
     // lwr_controllers::PoseRPY pose;
-    geometry_msgs::Pose pose;
+    geometry_msgs::Pose pose, pose_robot, pose_world;
 
     ros::Rate loop_rate(LOOP_RATE);
 
@@ -125,6 +122,8 @@ int main(int argc, char** argv)
     int state = CARTESIAN_IMPEDANCE;
     ros ::Time startTime = ros::Time::now();
 
+    MotionGenerator motion;
+
     int display_counter;
 
     while(ros::ok())
@@ -136,58 +135,42 @@ int main(int argc, char** argv)
         case CARTESIAN_IMPEDANCE:
 
             if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(20).toSec()) {
-                //state = SWITCH_IMP2POS;
-                //ROS_INFO("Switched to state SWITCH_IMP2POS");
+                state = SWITCH_IMP2POS;
+                ROS_INFO("Switched to state SWITCH_IMP2POS");
             }
 
             if (tester.isInitialized()) {
                 if (!initialized) {
                     cout << "Initializing main loop ..." << endl;
-                    //pose = tester.getWorldPosition().pose;
-                    pose = tester.getCartPosition().pose;
-
+                    pose_world = tester.getWorldPosition().pose;
+                    pose_robot = tester.getCartPosition().pose;
+                    // define here, in which coordinate system you want to work
+                    pose = pose_world;
+                    cout << "init pose: " << pose_world << endl;
                     // set limits:
                     upper = pose.position.z + 0.1;
                     lower = pose.position.z - 0.1;
                     initialized = true;
                 }
 
-                swing(lower, upper, pose.position.z, inc);
+                // move the robot in one axis ...
+                motion.swing(lower, upper, pose.position.z, inc);
 
                 // ROS_INFO_STREAM("Publishing to" << pub_pose.getNumSubscribers() << " subscribers\n");
 
-                //pose = tester.getCartPosition().pose;
-                //tester.pub_pose_.publish(pose);
-                //pose = geometry_msgs::Pose();
-                //pose.orientation.w = 1; // unit quaternions
-                tester.pub_pose_.publish(pose);
-                //tester.pub_pose_world_.publish(pose_world);
+                tester.pub_pose_world_.publish(pose);
 
-                SHOW(display_counter) "Cart. Position: " << pose.position.x << ", "
-                                                         << pose.position.y << ", "
-                                                         << pose.position.z << ", "
-                                                         << pose.orientation.x << ", "
-                                                         << pose.orientation.y << ", "
-                                                         << pose.orientation.z << ", "
-                                                         << pose.orientation.w << endl;
+                SHOW(display_counter) "Cart. Position: " << endl << pose << endl;
 
-                tester.pub_gains_.publish(tester.setCartGainsVector(800, 50, damping));
-//                std_msgs::Float64MultiArray gains = tester.setCartGainsVector(300, 0.7);
-//                gains.data[0] = 300.0;
-//                gains.data[1] = 300.0;
-//                gains.data[2] = 300.0;
-//                gains.data[3] = 50.0;
-//                gains.data[4] = 50.0;
-//                gains.data[5] = 50.0;
-//                tester.pub_gains_.publish(gains);
+                tester.pub_gains_.publish(tester.setCartGainsVector(pos_stiffness, orientation_stiffness, damping));
             }
             break;
         case SWITCH_IMP2POS:
         {
             std::vector<std::string> start_controllers;
-            start_controllers.push_back("cartesian_position");
+            start_controllers.push_back(position_controller);
             std::vector<std::string> stop_controllers;
-            stop_controllers.push_back("itr_cartesian_impedance_controller");
+            stop_controllers.push_back(impedance_controller);
             tester.switchController(start_controllers, stop_controllers);
             ROS_INFO("Switching to POSITION mode done!");
             state = JOINT_POSITION;
@@ -197,11 +180,11 @@ int main(int argc, char** argv)
             break;
         }
         case JOINT_POSITION:
-            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(5).toSec()) {
-                exit(0);
-                //state = SWITCH_POS2IMP;
-                //startTime = ros::Time::now();
-                //ROS_INFO("Switched to state SWITCH_IMP2POS");
+            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(8).toSec()) {
+                //exit(0);
+                state = SWITCH_POS2IMP;
+                startTime = ros::Time::now();
+                ROS_INFO("Switched to state SWITCH_IMP2POS");
             }
 
             break;
@@ -209,9 +192,9 @@ int main(int argc, char** argv)
         case SWITCH_POS2IMP:
         {
             std::vector<std::string> start_controllers;
-            start_controllers.push_back("itr_cartesian_impedance_controller");
+            start_controllers.push_back(impedance_controller);
             std::vector<std::string> stop_controllers;
-            stop_controllers.push_back("cartesian_position");
+            stop_controllers.push_back(position_controller);
             tester.switchController(start_controllers, stop_controllers);
             ROS_INFO("Switching to JOINT IMPEDANCE mode done!");
             state = CARTESIAN_IMPEDANCE;

@@ -16,7 +16,7 @@
 
 using namespace std;
 
-class testController
+class TestController
 {
 protected:
 	
@@ -31,6 +31,7 @@ protected:
     ros::ServiceClient srv_contr_switcher_;
     ros::ServiceClient srv_contr_list_;
     std::string controller_name_;
+    std::string position_controller_name_;
     ros::NodeHandle nh_;
     tf::StampedTransform world_transform_;
 
@@ -42,7 +43,7 @@ public:
 
     //testController() {}
 
-    testController(ros::NodeHandle &nh, std::string controller_name) : nh_(nh), controller_name_(controller_name)
+    TestController(ros::NodeHandle &nh, std::string controller_name, std::string position_controller_name) : nh_(nh), controller_name_(controller_name), position_controller_name_(position_controller_name)
     { }
 
     virtual void callbackJointState(const sensor_msgs::JointStateConstPtr &msg) = 0;
@@ -112,34 +113,20 @@ public:
         return right_contr;
     }
 
-    /*
-    bool checkController()
-    {
-        controller_manager_msgs::ListControllersResponse controller_list = listControllers();
-        bool right_contr = false;
-
-        ROS_INFO("Checking, if right controller loaded ...");
-        for (int i=0; i<controller_list.controller.size(); i++) {
-            std::string controller_name = controller_list.controller.at(i).name;
-
-            if (controller_name.compare(this->controller_name_) == 0) {
-                if (std::string(controller_list.controller.at(i).state).compare("running") == 0) {
-                    cout << "\tThe required controller is already running: " << controller_name_ << endl;
-                    right_contr = true;
-                }
-            }
-        }
-        if (!right_contr) {
-            cout << "\tThe required controller need to be started: " << controller_name_ << endl;
-        }
-
-        return right_contr;
-    }
-    */
-
     sensor_msgs::JointState getJointState()
     {
         return js_;
+    }
+
+    sensor_msgs::JointState::_position_type getJointPosition()
+    {
+        sensor_msgs::JointState temp_state;
+        temp_state.position.resize(7);
+
+        // copy the first 7 values, which are joint positions ...
+        std::copy(js_.position.begin(), js_.position.begin() + NUM_LWR_JOINTS, temp_state.position.begin());
+
+        return temp_state.position;
     }
 
     bool isInitialized()
@@ -154,9 +141,6 @@ public:
 
     bool switchController(std::vector<std::string> start_controllers, std::vector<std::string> stop_controllers, int strictness = 1)
     {
-        //start_controllers.push_back("itr_joint_impedance_controller");
-        //stop_controllers.push_back("joint_trajectory_controller");
-
         sc_.request.start_controllers = start_controllers;
         sc_.request.stop_controllers = stop_controllers;
         sc_.request.strictness = strictness;
@@ -187,18 +171,18 @@ public:
 
         //let the KRC some time to switch control mode:
         ROS_INFO("Waiting for KRC ...");
-        sleep(3);   // TODO find good time value for all controllers
+        sleep(6);   // TODO find good time value for all controllers
         ROS_INFO("Switch Done!");
 
         return ret_val;
     }
 
-    virtual ~testController()
+    virtual ~TestController()
     {    }
 
 };
 
-class cartController : public testController {
+class CartController : public TestController {
 private:
     tf::TransformListener tf_listener_;
 
@@ -206,15 +190,15 @@ public:
 
     ros::Publisher pub_pose_world_;
 
-    cartController(ros::NodeHandle &nh, std::string controller_name) : testController(nh, controller_name)
+    CartController(ros::NodeHandle &nh, std::string controller_name, std::string position_controller_name) : TestController(nh, controller_name, position_controller_name)
     {
         initialized_ = false;
 
         ROS_INFO("Subscribing to /lwr/joint_states...");
-        sub_js_ = nh_.subscribe ("/lwr/joint_states", 10, &cartController::callbackJointState, this);
+        sub_js_ = nh_.subscribe ("/lwr/joint_states", 10, &CartController::callbackJointState, this);
 
         ROS_INFO_STREAM ("Subscribing to /lwr/" << controller_name_ << "/measured_cartesian_position...");
-        sub_pose_ = nh_.subscribe ("/lwr/" + controller_name_ + "/measured_cartesian_pose", 10, &cartController::callbackCartPosition, this);
+        sub_pose_ = nh_.subscribe ("/lwr/" + controller_name_ + "/measured_cartesian_pose", 10, &CartController::callbackCartPosition, this);
 
         ROS_INFO_STREAM ("Looking up Transform...");
 
@@ -248,7 +232,8 @@ public:
             std::vector<std::string> start_controllers;
             start_controllers.push_back(controller_name_);
             std::vector<std::string> stop_controllers;
-            stop_controllers.push_back("joint_trajectory_controller");  // TODO which controllers need to be stopped?
+            stop_controllers.push_back(position_controller_name_);  // TODO which controllers need to be stopped? do not hardcode that
+            // e.g. stop all controllers, which would cause a resource conflict
             switchController(start_controllers, stop_controllers);
         }
     }
@@ -258,12 +243,6 @@ public:
         cart_pose_ = *msg;
         initialized_ = true;
     }
-
-//    void callbackCartPosition(const lwr_controllers::PoseRPYConstPtr &msg)
-//    {
-//        cart_pose_ = *msg;
-//        initialized_ = true;
-//    }
 
     void callbackJointState(const sensor_msgs::JointStateConstPtr &msg)
     {
@@ -334,22 +313,21 @@ public:
         return cart_vector;
     }
 
-    ~cartController() {}
+    ~CartController() {}
 
 };
 
-class jointController : public testController {
+class JointController : public TestController {
 private:
-
 
 public:
 
-    jointController(ros::NodeHandle &nh, std::string controller_name) : testController(nh, controller_name)
+    JointController(ros::NodeHandle &nh, std::string controller_name, std::string position_controller_name) : TestController(nh, controller_name, position_controller_name)
     {
         initialized_ = false;
 
         ROS_INFO("Subscribing to /lwr/joint_states...");
-        sub_js_ = nh_.subscribe ("/lwr/joint_states", 10, &jointController::callbackJointState, this);
+        sub_js_ = nh_.subscribe ("/lwr/joint_states", 10, &JointController::callbackJointState, this);
 
         pub_pose_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/position", 500);
         pub_force_ = nh_.advertise<std_msgs::Float64MultiArray> ("/lwr/" + controller_name_ + "/force", 500);
@@ -365,7 +343,7 @@ public:
             std::vector<std::string> start_controllers;
             start_controllers.push_back(controller_name_);
             std::vector<std::string> stop_controllers;
-            stop_controllers.push_back("joint_trajectory_controller");  // TODO which controllers need to be stopped?
+            stop_controllers.push_back(position_controller_name_);  // TODO which controllers need to be stopped?
             switchController(start_controllers, stop_controllers);
         }
     }
@@ -398,6 +376,6 @@ public:
         return joint_vector;
     }
 
-    ~jointController() {}
+    ~JointController() {}
 
 };
