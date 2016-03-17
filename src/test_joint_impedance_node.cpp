@@ -98,7 +98,7 @@ int main(int argc, char** argv)
     std::string position_controller("joint_trajectory_controller");
     std::string impedance_controller("itr_joint_impedance_controller");
 
-    JointController tester(nh, impedance_controller, position_controller);
+    JointController tester(nh, impedance_controller, position_controller, "right");
 
     // set global pointer (for signint handler)
     global_tester_ptr = &tester;

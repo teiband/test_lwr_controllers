@@ -99,23 +99,19 @@ int main(int argc, char** argv)
     std::string position_controller("cartesian_position");
     std::string impedance_controller("itr_cartesian_impedance_controller");
 
-    CartController tester(nh, impedance_controller, position_controller);
-    ros::Publisher pub_pos_mode = nh.advertise<lwr_controllers::PoseRPY>("/lwr/cartesian_position/command", 10);
-    lwr_controllers::PoseRPY pos_mode_cmd, init_pos_mode_cmd;
-
+    CartController tester(nh, impedance_controller, position_controller, "right");
+    ros::Publisher pub_pos_mode = nh.advertise<geometry_msgs::Pose>("lwr_right/cartesian_position/pose_base_link", 10);
+    // lwr_controllers::PoseRPY pos_mode_cmd, init_pos_mode_cmd;
 
     // set global pointer (for signint handler)
     global_tester_ptr = &tester;
     signal(SIGINT, mySigintHandler);
 
     // lwr_controllers::PoseRPY pose;
-    geometry_msgs::Pose pose, pose_robot, pose_world, init_pose;
+    geometry_msgs::Pose pose, pose_robot, pose_base_link, init_pose;
 
     ros::Rate loop_rate(LOOP_RATE);
 
-    float inc = +0.00005;
-
-    float upper, lower;
     bool initialized = false;
 
     enum controller_states {CARTESIAN_IMPEDANCE, SWITCH_IMP2POS, JOINT_POSITION, SWITCH_POS2IMP};
@@ -143,11 +139,11 @@ int main(int argc, char** argv)
             if (tester.isInitialized()) {
                 if (!initialized) {
                     cout << "Initializing main loop ..." << endl;
-                    pose_world = tester.getWorldPosition().pose;
-                    pose_robot = tester.getCartPosition().pose;
+                    pose_base_link = tester.getCartBaseLinkPosition().pose;
+                    pose_robot = tester.getCartRobotPosition().pose;
 
                     // define here, in which coordinate system you want to work
-                    pose = pose_world;
+                    pose = pose_base_link;
 
                     init_pose = pose;
                     cout << "init pose: " << endl << init_pose << endl;
@@ -156,8 +152,10 @@ int main(int argc, char** argv)
                 }
 
                 // move the robot in one axis ...
-                pose.position.x = motion.sineWave(0.1, init_pose.position.x, 0.1, LOOP_RATE);
-                tester.pub_pose_world_.publish(pose);
+                pose.position.x = motion.sineWave(0.03, init_pose.position.x, 0.1, LOOP_RATE);
+                tester.pub_pose_base_link_.publish(pose);
+                //cout << tester.pub_pose_base_link_.getTopic() << endl;
+                //cout << tester.pub_pose_base_link_.getNumSubscribers() << endl;
 
                 SHOW(display_counter) "Cart. Position: " << endl << pose << endl;
 
@@ -175,25 +173,32 @@ int main(int argc, char** argv)
 
             motion.reset();
 
+            /*
             double Y, P, R;
-            tf::Matrix3x3 (tf::Quaternion (tester.getCartPosition().pose.orientation.x,
-                                tester.getCartPosition().pose.orientation.y,
-                                tester.getCartPosition().pose.orientation.z,
-                                tester.getCartPosition().pose.orientation.w)).getEulerYPR(Y, P, R);
+            tf::Matrix3x3 (tf::Quaternion (tester.getCartRobotPosition().pose.orientation.x,
+                                tester.getCartRobotPosition().pose.orientation.y,
+                                tester.getCartRobotPosition().pose.orientation.z,
+                                tester.getCartRobotPosition().pose.orientation.w)).getEulerYPR(Y, P, R);
 
             pos_mode_cmd.orientation.roll = R;
             pos_mode_cmd.orientation.pitch = P;
             pos_mode_cmd.orientation.yaw = Y;
-            pos_mode_cmd.position.x = tester.getCartPosition().pose.position.x;
-            pos_mode_cmd.position.y = tester.getCartPosition().pose.position.y;
-            pos_mode_cmd.position.z = tester.getCartPosition().pose.position.z;
+            pos_mode_cmd.position.x = tester.getCartRobotPosition().pose.position.x;
+            pos_mode_cmd.position.y = tester.getCartRobotPosition().pose.position.y;
+            pos_mode_cmd.position.z = tester.getCartRobotPosition().pose.position.z;
+            */
+            pose_base_link = tester.getCartBaseLinkPosition().pose;
+            pose_robot = tester.getCartRobotPosition().pose;
 
-            init_pos_mode_cmd = pos_mode_cmd;
+            // define here, which KS you want to use
+            pose = pose_base_link;
+
+            init_pose = pose;
 
             break;
         }
         case JOINT_POSITION:
-            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(8).toSec()) {
+            if ((ros::Time::now().toSec() - startTime.toSec()) >= ros::Time(20).toSec()) {
                 //exit(0);
                 state = SWITCH_POS2IMP;
                 startTime = ros::Time::now();
@@ -201,12 +206,11 @@ int main(int argc, char** argv)
             }
             //SHOW(display_counter) tester.getCartPosition().pose << endl;
 
-            SHOW(display_counter) pos_mode_cmd << endl;
+            SHOW(display_counter) pose << endl;
 
             // move the robot in one axis ...
-            pos_mode_cmd.position.x = motion.sineWave(0.1, init_pos_mode_cmd.position.x, 0.1, LOOP_RATE);
-            pos_mode_cmd.id = 0;
-            pub_pos_mode.publish(pos_mode_cmd);
+            pose.position.x = motion.sineWave(0.03, init_pose.position.x, 0.1, LOOP_RATE);
+            pub_pos_mode.publish(pose);
 
             break;
 
