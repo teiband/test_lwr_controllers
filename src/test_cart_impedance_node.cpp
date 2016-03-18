@@ -154,8 +154,6 @@ int main(int argc, char** argv)
                 // move the robot in one axis ...
                 pose.position.x = motion.sineWave(0.03, init_pose.position.x, 0.1, LOOP_RATE);
                 tester.pub_pose_base_link_.publish(pose);
-                //cout << tester.pub_pose_base_link_.getTopic() << endl;
-                //cout << tester.pub_pose_base_link_.getNumSubscribers() << endl;
 
                 SHOW(display_counter) "Cart. Position: " << endl << pose << endl;
 
@@ -173,20 +171,6 @@ int main(int argc, char** argv)
 
             motion.reset();
 
-            /*
-            double Y, P, R;
-            tf::Matrix3x3 (tf::Quaternion (tester.getCartRobotPosition().pose.orientation.x,
-                                tester.getCartRobotPosition().pose.orientation.y,
-                                tester.getCartRobotPosition().pose.orientation.z,
-                                tester.getCartRobotPosition().pose.orientation.w)).getEulerYPR(Y, P, R);
-
-            pos_mode_cmd.orientation.roll = R;
-            pos_mode_cmd.orientation.pitch = P;
-            pos_mode_cmd.orientation.yaw = Y;
-            pos_mode_cmd.position.x = tester.getCartRobotPosition().pose.position.x;
-            pos_mode_cmd.position.y = tester.getCartRobotPosition().pose.position.y;
-            pos_mode_cmd.position.z = tester.getCartRobotPosition().pose.position.z;
-            */
             pose_base_link = tester.getCartBaseLinkPosition().pose;
             pose_robot = tester.getCartRobotPosition().pose;
 

@@ -37,10 +37,10 @@ protected:
     tf::StampedTransform base_link_transform_;
     tf::TransformListener tf_listener_;
 
-    std::string lwr_ns_; // robot namespace
-    std::string base_link_;
-    std::string lwr_base_link_;
-    std::string tip_link_;
+    std::string lwr_ns_;            // robot namespace
+    std::string base_link_;         // rosemarie robot base_link
+    std::string lwr_base_link_;     // KUKA arm base link
+    std::string lwr_tip_link_;          // KUKA arm tip link
 
 public:
 
@@ -67,10 +67,11 @@ public:
 
         base_link_ = "base_link";
         lwr_base_link_ = lwr_ns_ + "_base_link";
-        tip_link_ = lwr_ns_ + "_7_link";
+        lwr_tip_link_ = lwr_ns_ + "_7_link";
 
     }
 
+    // pure virtual function, this class cannot be instantiated
     virtual void callbackJointState(const sensor_msgs::JointStateConstPtr &msg) = 0;
 
     controller_manager_msgs::ListControllersResponse listControllers()
@@ -170,20 +171,22 @@ public:
 
     geometry_msgs::PoseStamped getCartBaseLinkPosition()
     {
-        geometry_msgs::PoseStamped tempPose;
+        geometry_msgs::PoseStamped pose_base_link;
+        pose_base_link.header.frame_id = base_link_;
+
         while (nh_.ok()) {
             try {
-                tf_listener_.lookupTransform(base_link_, tip_link_, ros::Time(0), base_link_transform_);
+                tf_listener_.lookupTransform(base_link_, lwr_tip_link_, ros::Time(0), base_link_transform_);
 
-                tempPose.pose.position.x = base_link_transform_.getOrigin().x();
-                tempPose.pose.position.y = base_link_transform_.getOrigin().y();
-                tempPose.pose.position.z = base_link_transform_.getOrigin().z();
-                tempPose.pose.orientation.x = base_link_transform_.getRotation().x();
-                tempPose.pose.orientation.y = base_link_transform_.getRotation().y();
-                tempPose.pose.orientation.z = base_link_transform_.getRotation().z();
-                tempPose.pose.orientation.w = base_link_transform_.getRotation().w();
+                pose_base_link.pose.position.x = base_link_transform_.getOrigin().x();
+                pose_base_link.pose.position.y = base_link_transform_.getOrigin().y();
+                pose_base_link.pose.position.z = base_link_transform_.getOrigin().z();
+                pose_base_link.pose.orientation.x = base_link_transform_.getRotation().x();
+                pose_base_link.pose.orientation.y = base_link_transform_.getRotation().y();
+                pose_base_link.pose.orientation.z = base_link_transform_.getRotation().z();
+                pose_base_link.pose.orientation.w = base_link_transform_.getRotation().w();
 
-                return tempPose;
+                return pose_base_link;
             }
             catch (tf::TransformException ex){
                 ROS_ERROR("%s",ex.what());
@@ -195,15 +198,19 @@ public:
     geometry_msgs::PoseStamped getCartRobotPosition()
     {
         geometry_msgs::PoseStamped pose;
-        pose.header.frame_id = tip_link_;
+        pose.header.frame_id = lwr_base_link_;
+
+        // get position out of joint_state, as the cartesian positions are available there
         pose.pose.position.x = js_.position[25];
         pose.pose.position.y = js_.position[26];
         pose.pose.position.z = js_.position[27];
 
+        // get orientation out of joint_state, like position ...
         tf::Transform temp_tf(tf::Matrix3x3(js_.position[28], js_.position[29], js_.position[30],
                                             js_.position[31], js_.position[32], js_.position[33],
                                             js_.position[34], js_.position[35], js_.position[36]));
 
+        // convert orientation to geometry message
         tf::quaternionTFToMsg(temp_tf.getRotation(), pose.pose.orientation);
 
         return pose;
@@ -299,8 +306,8 @@ public:
         ROS_INFO_STREAM ("Waiting for base_link Transform...");
         try {
             //ros::Time ros_time = ros::Time(0);
-            tf_listener_.waitForTransform(base_link_, tip_link_, ros::Time(0), ros::Duration(5.0));
-            tf_listener_.lookupTransform(base_link_, tip_link_, ros::Time(0), base_link_transform_);
+            tf_listener_.waitForTransform(base_link_, lwr_tip_link_, ros::Time(0), ros::Duration(5.0));
+            tf_listener_.lookupTransform(base_link_, lwr_tip_link_, ros::Time(0), base_link_transform_);
         }
         catch (tf::TransformException ex){
             ROS_ERROR("%s",ex.what());
