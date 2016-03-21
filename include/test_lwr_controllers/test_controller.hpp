@@ -143,15 +143,15 @@ public:
         return js_;
     }
 
-    sensor_msgs::JointState::_position_type getJointPosition()
+    std_msgs::Float64MultiArray::_data_type getJointPosition()
     {
-        sensor_msgs::JointState temp_state;
-        temp_state.position.resize(7);
+        std_msgs::Float64MultiArray temp_pos;
+        temp_pos.data.resize(7);
 
         // copy the first 7 values, which are joint positions ...
-        std::copy(js_.position.begin(), js_.position.begin() + NUM_LWR_JOINTS, temp_state.position.begin());
+        std::copy(js_.position.begin(), js_.position.begin() + NUM_LWR_JOINTS, temp_pos.data.begin());
 
-        return temp_state.position;
+        return temp_pos.data;
     }
 
     geometry_msgs::Pose createCartPoseRPY(double x, double y, double z, double roll, double pitch, double yaw)
