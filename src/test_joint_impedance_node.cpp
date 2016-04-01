@@ -149,7 +149,7 @@ int main(int argc, char** argv)
 
                 tester.pub_pose_.publish(pos);
                 //tester.pub_force_.publish(torque_vector);
-                tester.pub_gains_.publish(tester.setJointGainsVector(stiffness, damping));
+                //tester.pub_gains_.publish(tester.setJointGainsVector(stiffness, damping));
 
             }
             break;
@@ -177,6 +177,16 @@ int main(int argc, char** argv)
             }
 
             pos.data[0] = motion.sineWave(0.3, init_pos.data[0], 0.1, LOOP_RATE);
+
+            if (display_counter%LOOP_RATE == 0) {
+                for (int i=0; i<7; i++) {
+                    std::cout << pos.data[i] << ", ";
+
+                }
+                std::cout << std::endl;
+            }
+
+            // TODO publish position here to POSITION CONTROLLER
 
             break;
 
